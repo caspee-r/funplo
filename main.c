@@ -2,33 +2,41 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <SDL2/SDL.h>
+#include <math.h>
+#include "desc_font.h"
+#include <errno.h>
 
 
 typedef unsigned char u8;
 
 #define WIDTH 800
 #define HEIGHT 600
+#define MARKER_WIDTH 2
+#define DEFAULT_PIXELS_PER_UNIT 100
+#define DEFAULT_STEP 2
 
-#define BG 0x181818
+#define FONT_SIZE 12
+#define FONT_SPACING 0
+#define FONT_SPRITE_COLS 10
+#define FONT_SPRITE_ROWS 10
+#define FONT_SPRITE_W desc_font_width / FONT_SPRITE_COLS
+#define FONT_SPRITE_H desc_font_height / FONT_SPRITE_ROWS
+
+#define BG 0xffffff
+#define AXIS_COLOR 0x000000
+#define NUMBERS_COLOR 0x182dfc
 
 #define GET_COMPONENT_B(rgb) (u8)((rgb) & 0xff)
 #define GET_COMPONENT_G(rgb) (u8)(((rgb) >> 8) & 0xff)
 #define GET_COMPONENT_R(rgb) (u8)(((rgb) >> 16) & 0xff)
 
-typedef enum {
-	HORIZONTAL = 1,
-	VERTICAL,
-} ORIENT;
+#define ARR_LEN(arr) (sizeof((arr)) / sizeof((arr[0])))
+typedef struct {
+	float x;
+	float y;
+}Vec2;
 
 typedef struct {
-	char* label;
-	unsigned int step;
-	ORIENT orient;
-}Axis;
-
-char* program_name = "funplot";
-
-
 void render_axis(SDL_Renderer * renderer, int width, int height, Axis axis){
 	int x1 = 0, x2 = 0;
 	int y1 = 0, y2 = 0;
@@ -50,10 +58,44 @@ void render_axis(SDL_Renderer * renderer, int width, int height, Axis axis){
 		for (int y = 0; y <= height; y += axis.step){
 			if (y  != height/2)
 				SDL_RenderDrawLine(renderer, width/2+1, y, width/2-1, y);
+static char* program_name = "funplot";
+static char temp_buf[1024] = {0};
+static SDL_Texture* font_texture;
+
+SDL_Surface *load_png_file_as_surface(uint32_t *data, size_t width, size_t height)
+{
+	SDL_Surface* image_surface = SDL_CreateRGBSurfaceFrom(
+									  data,
+									  (int) width,
+									  (int) height,
+									  32,
+									  (int) width * 4,
+									  0x000000FF,
+									  0x0000FF00,
+									  0x00FF0000,
+									  0xFF000000);
+	return image_surface;
+}
+
+void render_number(SDL_Renderer* renderer, int num, int x, int y)
+{
+	int r =  snprintf(temp_buf,ARR_LEN(temp_buf),"%d",num);
+	if (r < 0){
+		fprintf(stderr, "[Warning]: %s", strerror(errno));
+	}else {
+		int alignment_size = r * FONT_SIZE;
+		int start_x = x - alignment_size/2 ;//+ FONT_SPRITE_W/2;
+		for (int j = 0; j < r; j++){
+			int i = temp_buf[j] - 32; // get the index in the sprite
+			int rowpx = (i / (FONT_SPRITE_COLS)) * FONT_SPRITE_H;
+			int colpx = (i % (FONT_SPRITE_COLS)) * FONT_SPRITE_W;
+			SDL_Rect sRect = {.x = colpx+FONT_SPRITE_W/4, .y = rowpx, .w = FONT_SPRITE_W/2, .h = FONT_SPRITE_H};
+			SDL_Rect dRect = {.x = start_x, .y = y+2, .w = FONT_SIZE, .h = FONT_SIZE};
+			start_x += FONT_SIZE; // spacing
+			SDL_RenderCopy(renderer, font_texture, &sRect, &dRect);
 		}
-	}break;
 	}
-	SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+}
 }
 
 void plot_function(SDL_Renderer * renderer, int width, int height)
