@@ -37,27 +37,11 @@ typedef struct {
 }Vec2;
 
 typedef struct {
-void render_axis(SDL_Renderer * renderer, int width, int height, Axis axis){
-	int x1 = 0, x2 = 0;
-	int y1 = 0, y2 = 0;
-	switch(axis.orient){
-	case HORIZONTAL:{
-		y1 = height /2;
-		y2 = y1;
-		x2 = width;
-		for (int x = 0; x <= width; x += axis.step){
-			if (x != width/2)
-				SDL_RenderDrawLine(renderer, x, height/2+1, x, height/2-1);
-		}
+	Vec2 origin;
+	unsigned int pixels_per_unit;
+	int step;
+}Plane;
 
-	}break;
-	case VERTICAL:{
-		x1 = width / 2;
-		x2 = x1;
-		y2 = height;
-		for (int y = 0; y <= height; y += axis.step){
-			if (y  != height/2)
-				SDL_RenderDrawLine(renderer, width/2+1, y, width/2-1, y);
 static char* program_name = "funplot";
 static char temp_buf[1024] = {0};
 static SDL_Texture* font_texture;
@@ -96,17 +80,51 @@ void render_number(SDL_Renderer* renderer, int num, int x, int y)
 		}
 	}
 }
+
+void render_plane(SDL_Renderer * renderer, Plane plane, int width, int height)
+{
+	SDL_SetRenderDrawColor(renderer, GET_COMPONENT_R(AXIS_COLOR), GET_COMPONENT_G(AXIS_COLOR), GET_COMPONENT_B(AXIS_COLOR), 255);
+	// x-axis
+	int x = plane.origin.x * (float)width;
+	int y = plane.origin.y * (float)height;
+	int unit = plane.pixels_per_unit;
+	int acc = plane.step;
+	for (int i = x+unit; i <= width; i += unit){
+		SDL_RenderDrawLine(renderer, i, y+MARKER_WIDTH, i, y-MARKER_WIDTH);
+		render_number(renderer, acc, i, y+MARKER_WIDTH);
+		acc += plane.step;
+	}
+	acc = -plane.step;
+	for (int i = x-unit; i >= 0; i -= unit){
+		SDL_RenderDrawLine(renderer, i, y+MARKER_WIDTH, i, y-MARKER_WIDTH);
+		render_number(renderer, acc, i, y+MARKER_WIDTH);
+		acc -= plane.step;
+	}
+	SDL_RenderDrawLine(renderer, 0, y, width, y);
+	// y-axis
+	acc = -plane.step;
+	for (int i = y+unit; i <= height; i += unit){
+		SDL_RenderDrawLine(renderer, x+2, i, x-2, i);
+		render_number(renderer, acc, x+2, i);
+		acc -= plane.step;
+	}
+	acc = 0;
+	for (int i = y-unit; i >= 0; i -= unit){
+		SDL_RenderDrawLine(renderer, x+2, i, x-2, i);
+		render_number(renderer,acc, x+2, i);
+		acc += plane.step;
+	}
+	SDL_RenderDrawLine(renderer, x, 0, x, height);
 }
 
 void plot_function(SDL_Renderer * renderer, int width, int height)
 {
 	SDL_Point* points = malloc(sizeof(SDL_Point)*2048);
-
 	int p_x = -(width)/2;
 	int x_pos = 0;
 	int count = 0;
 	for (int x = p_x; x <= width/2; ++x){
-		int f_x = x *-x + 20;
+		int f_x = x*x+12;
 		f_x = (height/2) - f_x;
 		SDL_Point p = {.x = x_pos, .y = f_x};
 		x_pos++;
@@ -118,6 +136,7 @@ void plot_function(SDL_Renderer * renderer, int width, int height)
 
 int main()
 {
+
 	if (SDL_Init(SDL_INIT_VIDEO) < 0){
 		fprintf(stderr, "[Fatal]: Can't Initialize the program\ndue to: %s",
 				SDL_GetError());
@@ -131,30 +150,43 @@ int main()
 		fprintf(stderr, "[Fatal]: Can't Open the window\ndue to: %s", SDL_GetError());
 		exit(1);
 	}
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); // linear
+	SDL_Surface* font_surface = load_png_file_as_surface(desc_font_data, desc_font_width, desc_font_height);
+	font_texture = SDL_CreateTextureFromSurface(renderer, font_surface);
+	if (font_surface == NULL || font_texture == NULL){
+		fprintf(stderr, "[Warning]: couldn't load the font: %s",SDL_GetError());
+	}
+	SDL_SetTextureColorMod(font_texture, GET_COMPONENT_R(NUMBERS_COLOR),GET_COMPONENT_R(NUMBERS_COLOR),GET_COMPONENT_R(NUMBERS_COLOR));
+	SDL_FreeSurface(font_surface);
 	bool quit = false;
-	Axis x_axis = {.label = "x", .step = 5,.orient = HORIZONTAL};
-	Axis y_axis = {.label = "f(x)", .step = 5 ,.orient = VERTICAL};
 	int width = WIDTH;
 	int height = HEIGHT;
+	Vec2 origin = {.x = 0.5f, .y = 0.5f};
+	Plane plane = {.origin = origin, .pixels_per_unit = DEFAULT_PIXELS_PER_UNIT, .step = DEFAULT_STEP};
+	bool drag = false;
+	// Event Loop
 	while (!quit){
 		SDL_Event event = {0};
 		while (SDL_PollEvent(&event)){
 			switch (event.type){
-			case SDL_QUIT:
+			case SDL_QUIT:{
 				quit = true;
-				break;
+			} break;
+			case SDL_MOUSEMOTION:{
+				if ((event.motion.state & 1) == 1){
+					plane.origin.x += event.motion.xrel / (float)width;
+					plane.origin.y += event.motion.yrel / (float)height;
+				}
+			}break;
 			}
 		}
+		SDL_GetWindowSize(win, &width, &height);
 		SDL_SetRenderDrawColor(renderer, GET_COMPONENT_R(BG), GET_COMPONENT_G(BG), GET_COMPONENT_B(BG), 255);
 		SDL_RenderClear(renderer);
-		SDL_SetRenderDrawColor(renderer, 0xff, 0xcc, 0x8, 255);
-		render_axis(renderer, width, height,x_axis);
-		render_axis(renderer, width, height,y_axis);
+		render_plane(renderer, plane, width, height);
 		SDL_SetRenderDrawColor(renderer, 0xff, 0x00,0x00, 255);
 		plot_function(renderer, width, height);
 		SDL_RenderPresent(renderer);
-		SDL_GetWindowSize(win, &width, &height);
 	}
-
 	return 0;
 }
