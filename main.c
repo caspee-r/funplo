@@ -24,6 +24,7 @@ typedef unsigned char u8;
 
 #define BG 0xffffff
 #define AXIS_COLOR 0x000000
+#define GRID_COLOR 0xd3cecd
 #define NUMBERS_COLOR 0x182dfc
 
 #define GET_COMPONENT_B(rgb) (u8)((rgb) & 0xff)
@@ -31,6 +32,9 @@ typedef unsigned char u8;
 #define GET_COMPONENT_R(rgb) (u8)(((rgb) >> 16) & 0xff)
 
 #define ARR_LEN(arr) (sizeof((arr)) / sizeof((arr[0])))
+
+//FIX(caspeer): numbers rendering position
+
 typedef struct {
 	float x;
 	float y;
@@ -83,52 +87,66 @@ void render_number(SDL_Renderer* renderer, int num, int x, int y)
 
 void render_plane(SDL_Renderer * renderer, Plane plane, int width, int height)
 {
-	SDL_SetRenderDrawColor(renderer, GET_COMPONENT_R(AXIS_COLOR), GET_COMPONENT_G(AXIS_COLOR), GET_COMPONENT_B(AXIS_COLOR), 255);
+	//TODO(caspeer): draw another grid lines that denotes subunits;
 	// x-axis
 	int x = plane.origin.x * (float)width;
 	int y = plane.origin.y * (float)height;
 	int unit = plane.pixels_per_unit;
 	int acc = plane.step;
+	SDL_SetRenderDrawColor(renderer, GET_COMPONENT_R(AXIS_COLOR), GET_COMPONENT_G(AXIS_COLOR), GET_COMPONENT_B(AXIS_COLOR), 255);
+	SDL_RenderDrawLine(renderer, 0,y, width,y);
+	SDL_RenderDrawLine(renderer, x, 0, x, height);
+	SDL_SetRenderDrawColor(renderer, GET_COMPONENT_R(GRID_COLOR), GET_COMPONENT_G(GRID_COLOR), GET_COMPONENT_B(GRID_COLOR), 127);
 	for (int i = x+unit; i <= width; i += unit){
-		SDL_RenderDrawLine(renderer, i, y+MARKER_WIDTH, i, y-MARKER_WIDTH);
 		render_number(renderer, acc, i, y+MARKER_WIDTH);
+		SDL_RenderDrawLine(renderer, i,0, i, height);
 		acc += plane.step;
 	}
 	acc = -plane.step;
 	for (int i = x-unit; i >= 0; i -= unit){
-		SDL_RenderDrawLine(renderer, i, y+MARKER_WIDTH, i, y-MARKER_WIDTH);
 		render_number(renderer, acc, i, y+MARKER_WIDTH);
 		acc -= plane.step;
+		SDL_RenderDrawLine(renderer, i,0, i, height);
 	}
-	SDL_RenderDrawLine(renderer, 0, y, width, y);
+
+
 	// y-axis
 	acc = -plane.step;
 	for (int i = y+unit; i <= height; i += unit){
-		SDL_RenderDrawLine(renderer, x+2, i, x-2, i);
 		render_number(renderer, acc, x+2, i);
+		SDL_RenderDrawLine(renderer, 0, i, width, i);
 		acc -= plane.step;
 	}
 	acc = 0;
 	for (int i = y-unit; i >= 0; i -= unit){
-		SDL_RenderDrawLine(renderer, x+2, i, x-2, i);
 		render_number(renderer,acc, x+2, i);
+		SDL_RenderDrawLine(renderer, 0, i, width, i);
 		acc += plane.step;
 	}
-	SDL_RenderDrawLine(renderer, x, 0, x, height);
 }
 
 void plot_function(SDL_Renderer * renderer, int width, int height)
 {
+	//NOTE(caspeer): we need to interpolate the function range with a high percision
+
 	SDL_Point* points = malloc(sizeof(SDL_Point)*2048);
-	int p_x = -(width)/2;
-	int x_pos = 0;
+	float min = (float)-((width)/2)/DEFAULT_PIXELS_PER_UNIT*DEFAULT_STEP;
+	float max = -min;
+	float t = 0.0f;
 	int count = 0;
-	for (int x = p_x; x <= width/2; ++x){
-		int f_x = x*x+12;
-		f_x = (height/2) - f_x;
-		SDL_Point p = {.x = x_pos, .y = f_x};
-		x_pos++;
+	float x = min;
+	//TODO(caspeer): make the rendering looks smoother
+	//TODO(caspeer): anti-alaising and MSAA ??
+	//TODO(caspeer): is there a better way other then lerping ??
+	//TODO(caspeer): make the plotting depends on the 2d plane.
+	while (t <= 1){
+		float f_x =  powf(x,3);
+		int y_pos = height/2-(f_x * DEFAULT_PIXELS_PER_UNIT / DEFAULT_STEP);
+		int x_pos = width/2-(x * DEFAULT_PIXELS_PER_UNIT / DEFAULT_STEP);
+		SDL_Point p = {.x = x_pos, .y = y_pos};
 		points[count++] = p;
+		t += 0.001;
+		x = min + t * (max - min);
 	}
 	SDL_RenderDrawLines(renderer, points, count);
 	free(points);
