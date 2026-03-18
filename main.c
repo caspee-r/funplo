@@ -71,82 +71,84 @@ void render_number(SDL_Renderer* renderer, int num, int x, int y)
 	if (r < 0){
 		fprintf(stderr, "[Warning]: %s", strerror(errno));
 	}else {
-		int alignment_size = r * FONT_SIZE;
-		int start_x = x - alignment_size/2 ;//+ FONT_SPRITE_W/2;
+		int start_x = x;//+ FONT_SPRITE_W/2;
 		for (int j = 0; j < r; j++){
 			int i = temp_buf[j] - 32; // get the index in the sprite
 			int rowpx = (i / (FONT_SPRITE_COLS)) * FONT_SPRITE_H;
 			int colpx = (i % (FONT_SPRITE_COLS)) * FONT_SPRITE_W;
 			SDL_Rect sRect = {.x = colpx+FONT_SPRITE_W/4, .y = rowpx, .w = FONT_SPRITE_W/2, .h = FONT_SPRITE_H};
-			SDL_Rect dRect = {.x = start_x, .y = y+2, .w = FONT_SIZE, .h = FONT_SIZE};
+			SDL_Rect dRect = {.x = start_x, .y = y, .w = FONT_SIZE, .h = FONT_SIZE};
 			start_x += FONT_SIZE; // spacing
 			SDL_RenderCopy(renderer, font_texture, &sRect, &dRect);
 		}
 	}
 }
 
-void render_plane(SDL_Renderer * renderer, Plane plane, int width, int height)
+void render_cartesianplane2d(SDL_Renderer * renderer, CartesianPlane2d* plane, int width, int height)
 {
 	//TODO(caspeer): draw another grid lines that denotes subunits;
-	// x-axis
-	int x = plane.origin.x * (float)width;
-	int y = plane.origin.y * (float)height;
-	int unit = plane.pixels_per_unit;
-	int acc = plane.step;
+	int x = plane->ox * (float)width;
+	int y = plane->oy * (float)height;
+	// origin label
+	render_number(renderer, 0, x+FONT_SIZE, y+X_AXIS_NUMBER_YOFFSET);
+	int unit = plane->pixels_per_unit;
 	SDL_SetRenderDrawColor(renderer, GET_COMPONENT_R(AXIS_COLOR), GET_COMPONENT_G(AXIS_COLOR), GET_COMPONENT_B(AXIS_COLOR), 255);
 	SDL_RenderDrawLine(renderer, 0,y, width,y);
 	SDL_RenderDrawLine(renderer, x, 0, x, height);
 	SDL_SetRenderDrawColor(renderer, GET_COMPONENT_R(GRID_COLOR), GET_COMPONENT_G(GRID_COLOR), GET_COMPONENT_B(GRID_COLOR), 127);
+	// x-axis
+	int acc = plane->scale;
 	for (int i = x+unit; i <= width; i += unit){
-		render_number(renderer, acc, i, y+MARKER_WIDTH);
+		render_number(renderer, acc, i+X_AXIS_NUMBER_XOFFSET, y+X_AXIS_NUMBER_YOFFSET);
 		SDL_RenderDrawLine(renderer, i,0, i, height);
-		acc += plane.step;
+		acc += plane->scale;
 	}
-	acc = -plane.step;
+	acc = -plane->scale;
 	for (int i = x-unit; i >= 0; i -= unit){
-		render_number(renderer, acc, i, y+MARKER_WIDTH);
-		acc -= plane.step;
+		render_number(renderer, acc, i+X_AXIS_NUMBER_XOFFSET, y+X_AXIS_NUMBER_YOFFSET);
+		acc -= plane->scale;
 		SDL_RenderDrawLine(renderer, i,0, i, height);
 	}
-
-
 	// y-axis
-	acc = -plane.step;
+	acc = -plane->scale;
 	for (int i = y+unit; i <= height; i += unit){
-		render_number(renderer, acc, x+2, i);
+		render_number(renderer, acc, x+Y_AXIS_NUMBER_XOFFSET, i + Y_AXIS_NUMBER_YOFFSET);
 		SDL_RenderDrawLine(renderer, 0, i, width, i);
-		acc -= plane.step;
+		acc -= plane->scale;
 	}
-	acc = 0;
+	acc = plane->scale;
 	for (int i = y-unit; i >= 0; i -= unit){
-		render_number(renderer,acc, x+2, i);
+		render_number(renderer, acc, x+Y_AXIS_NUMBER_XOFFSET, i + Y_AXIS_NUMBER_YOFFSET);
 		SDL_RenderDrawLine(renderer, 0, i, width, i);
-		acc += plane.step;
+		acc += plane->scale;
 	}
 }
 
-void plot_function(SDL_Renderer * renderer, int width, int height)
+void plot_function(SDL_Renderer * renderer, CartesianPlane2d* plane,  int width, int height)
 {
 	//NOTE(caspeer): we need to interpolate the function range with a high percision
-
-	SDL_Point* points = malloc(sizeof(SDL_Point)*2048);
-	float min = (float)-((width)/2)/DEFAULT_PIXELS_PER_UNIT*DEFAULT_STEP;
-	float max = -min;
-	float t = 0.0f;
+	SDL_Point* points = malloc(sizeof(SDL_Point)*2048*2048);
 	int count = 0;
-	float x = min;
+	float x = plane->min_x;
+	//NOTE(caspeer): is it okay for this fuction or any function to depends on constant
+	float sampling_interval = (float)(plane->max_x - plane->min_x)/(float)FUNC_SAMPLES;
+
 	//TODO(caspeer): make the rendering looks smoother
 	//TODO(caspeer): anti-alaising and MSAA ??
 	//TODO(caspeer): is there a better way other then lerping ??
 	//TODO(caspeer): make the plotting depends on the 2d plane.
-	while (t <= 1){
-		float f_x =  powf(x,3);
-		int y_pos = height/2-(f_x * DEFAULT_PIXELS_PER_UNIT / DEFAULT_STEP);
-		int x_pos = width/2-(x * DEFAULT_PIXELS_PER_UNIT / DEFAULT_STEP);
+
+	int ox = plane->ox*width;
+	int oy = plane->oy*height;
+
+	while (x <= plane->max_x){
+		float f_x =  x*x;
+		// get the screen coordinates from the plane coordinate
+		int y_pos = oy - PLANE2SCREEN(f_x, plane->scale, plane->pixels_per_unit);
+		int x_pos = ox + PLANE2SCREEN(x, plane->scale, plane->pixels_per_unit);
 		SDL_Point p = {.x = x_pos, .y = y_pos};
 		points[count++] = p;
-		t += 0.001;
-		x = min + t * (max - min);
+		x += sampling_interval;
 	}
 	SDL_RenderDrawLines(renderer, points, count);
 	free(points);
