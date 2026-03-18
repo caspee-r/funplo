@@ -3,8 +3,11 @@
 #include <stdbool.h>
 #include <SDL2/SDL.h>
 #include <math.h>
-#include "desc_font.h"
 #include <errno.h>
+
+#include "desc_font.h"
+#define PLANE_IMPLEMENTATION
+#include "plane.h"
 
 
 typedef unsigned char u8;
@@ -12,8 +15,12 @@ typedef unsigned char u8;
 #define WIDTH 800
 #define HEIGHT 600
 #define MARKER_WIDTH 2
+#define X_AXIS_NUMBER_YOFFSET 2
+#define X_AXIS_NUMBER_XOFFSET 2
+#define Y_AXIS_NUMBER_XOFFSET 4
+#define Y_AXIS_NUMBER_YOFFSET 4
 #define DEFAULT_PIXELS_PER_UNIT 100
-#define DEFAULT_STEP 2
+#define DEFAULT_SCALE 2
 
 #define FONT_SIZE 12
 #define FONT_SPACING 0
@@ -27,24 +34,13 @@ typedef unsigned char u8;
 #define GRID_COLOR 0xd3cecd
 #define NUMBERS_COLOR 0x182dfc
 
+#define FUNC_SAMPLES 480000
+
 #define GET_COMPONENT_B(rgb) (u8)((rgb) & 0xff)
 #define GET_COMPONENT_G(rgb) (u8)(((rgb) >> 8) & 0xff)
 #define GET_COMPONENT_R(rgb) (u8)(((rgb) >> 16) & 0xff)
 
 #define ARR_LEN(arr) (sizeof((arr)) / sizeof((arr[0])))
-
-//FIX(caspeer): numbers rendering position
-
-typedef struct {
-	float x;
-	float y;
-}Vec2;
-
-typedef struct {
-	Vec2 origin;
-	unsigned int pixels_per_unit;
-	int step;
-}Plane;
 
 static char* program_name = "funplot";
 static char temp_buf[1024] = {0};
@@ -156,33 +152,42 @@ void plot_function(SDL_Renderer * renderer, CartesianPlane2d* plane,  int width,
 
 int main()
 {
-
 	if (SDL_Init(SDL_INIT_VIDEO) < 0){
 		fprintf(stderr, "[Fatal]: Can't Initialize the program\ndue to: %s",
 				SDL_GetError());
 		exit(1);
 	}
-
-	SDL_Window* win = SDL_CreateWindow(program_name, 0, 0, WIDTH, HEIGHT,SDL_WINDOW_RESIZABLE );
+	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 16);
+	SDL_Window* win = SDL_CreateWindow(program_name, 0, 0, WIDTH, HEIGHT,SDL_WINDOW_OPENGL);
 	SDL_Renderer* renderer = SDL_CreateRenderer(win, -1,SDL_RENDERER_ACCELERATED);
 
 	if (win == NULL || renderer == NULL){
 		fprintf(stderr, "[Fatal]: Can't Open the window\ndue to: %s", SDL_GetError());
 		exit(1);
 	}
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); // linear
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 	SDL_Surface* font_surface = load_png_file_as_surface(desc_font_data, desc_font_width, desc_font_height);
 	font_texture = SDL_CreateTextureFromSurface(renderer, font_surface);
 	if (font_surface == NULL || font_texture == NULL){
 		fprintf(stderr, "[Warning]: couldn't load the font: %s",SDL_GetError());
 	}
-	SDL_SetTextureColorMod(font_texture, GET_COMPONENT_R(NUMBERS_COLOR),GET_COMPONENT_R(NUMBERS_COLOR),GET_COMPONENT_R(NUMBERS_COLOR));
+	SDL_SetTextureColorMod(font_texture, GET_COMPONENT_R(NUMBERS_COLOR),GET_COMPONENT_G(NUMBERS_COLOR),GET_COMPONENT_B(NUMBERS_COLOR));
 	SDL_FreeSurface(font_surface);
 	bool quit = false;
-	int width = WIDTH;
-	int height = HEIGHT;
-	Vec2 origin = {.x = 0.5f, .y = 0.5f};
-	Plane plane = {.origin = origin, .pixels_per_unit = DEFAULT_PIXELS_PER_UNIT, .step = DEFAULT_STEP};
+	int width = 0;
+	int height = 0;
+	SDL_GetWindowSize(win, &width, &height);
+	CartesianPlane2d plane = {
+		.ox = 0.5f,
+		.oy = 0.5f,
+		.pixels_per_unit = DEFAULT_PIXELS_PER_UNIT,
+		.scale = DEFAULT_SCALE,
+		.min_x = SCREEN2PLANE(width/2, DEFAULT_SCALE, DEFAULT_PIXELS_PER_UNIT)*-1,
+		.max_x = SCREEN2PLANE(width/2, DEFAULT_SCALE, DEFAULT_PIXELS_PER_UNIT),
+		.min_y = SCREEN2PLANE(height/2, DEFAULT_SCALE, DEFAULT_PIXELS_PER_UNIT) * -1,
+		.max_y = SCREEN2PLANE(height/2, DEFAULT_SCALE, DEFAULT_PIXELS_PER_UNIT),
+	};
 	bool drag = false;
 	// Event Loop
 	while (!quit){
@@ -194,8 +199,12 @@ int main()
 			} break;
 			case SDL_MOUSEMOTION:{
 				if ((event.motion.state & 1) == 1){
-					plane.origin.x += event.motion.xrel / (float)width;
-					plane.origin.y += event.motion.yrel / (float)height;
+					plane.ox += event.motion.xrel / (float)width;
+					plane.oy += event.motion.yrel / (float)height;
+					plane.min_x -= SCREEN2PLANE(event.motion.xrel, plane.scale, plane.pixels_per_unit);
+					plane.max_x -= SCREEN2PLANE(event.motion.xrel, plane.scale, plane.pixels_per_unit);
+					plane.min_y += SCREEN2PLANE(event.motion.yrel, plane.scale, plane.pixels_per_unit);
+					plane.max_y -= SCREEN2PLANE(event.motion.yrel, plane.scale, plane.pixels_per_unit);
 				}
 			}break;
 			}
@@ -203,9 +212,9 @@ int main()
 		SDL_GetWindowSize(win, &width, &height);
 		SDL_SetRenderDrawColor(renderer, GET_COMPONENT_R(BG), GET_COMPONENT_G(BG), GET_COMPONENT_B(BG), 255);
 		SDL_RenderClear(renderer);
-		render_plane(renderer, plane, width, height);
-		SDL_SetRenderDrawColor(renderer, 0xff, 0x00,0x00, 255);
-		plot_function(renderer, width, height);
+		render_cartesianplane2d(renderer, &plane, width, height);
+		SDL_SetRenderDrawColor(renderer, 0xaa, 0x1,0x20, 255);
+		plot_function(renderer,&plane, width, height);
 		SDL_RenderPresent(renderer);
 	}
 	return 0;
