@@ -503,7 +503,14 @@ void render_cartesianplane2d(int width, int height)
 	// "shrink" while zooming, values adapt instead
 	// long scientific labels can outgrow the step stride, in that case
 	// only alternate ticks are labeled so neighbors never collide
-	render_number(0, (int) oxf + font_advance, (int) oyf + X_AXIS_NUMBER_YOFFSET);
+	// the lone origin "0" is skipped whenever the first label to its
+	// left would bleed over the axis and collide with it
+	bool draw_zero = true;
+	fmt_number(-step, temp_buf, ARR_LEN(temp_buf));
+	if (oxf - unit + X_AXIS_NUMBER_XOFFSET + (float) strlen(temp_buf) * font_advance > oxf + font_advance){
+		draw_zero = false;
+	}
+	if (draw_zero) render_number(0, (int) oxf + font_advance, (int) oyf + X_AXIS_NUMBER_YOFFSET);
 	for (int k = 1;; k++){
 		float px = oxf + (float) k * unit;
 		if (px > width) break;
